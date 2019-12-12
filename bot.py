@@ -1,36 +1,97 @@
 import config
 import telebot
-from pyramid.config import Configurator
-from pyramid.response import Response
+from aiogram.types import ReplyKeyboardRemove, \
+    ReplyKeyboardMarkup, KeyboardButton, \
+    InlineKeyboardMarkup, InlineKeyboardButton
 from models import User, Weather, Session, Base, engine
+from geocoder import getPosition, getNameTown
+from weatherapi import setWeather
 
 bot = telebot.TeleBot(config.token)
 DBSession = Session(bind=engine)
 DBUser = DBSession.query(User)
 DBWeather = DBSession.query(Weather)
+
+
+
 @bot.message_handler(commands=["start"])
 def hello(message):
   welcome = ''' Добро пожаловать в чат WeatherBot⛅️
   Что бы узнать погоду, введите название вашего города
   Доступные команды:
-  /list - Доступные города🏙'''
+  /weather - кнопки'''
   bot.send_message(message.chat.id,welcome)
 
-@bot.message_handler(commands=["list"])
-def list_of_town(message):
-  all_town = 'Cписок доступных городов:\n'
-  data = DBSession.query(Weather).order_by(Weather.town)
-  for instance in data:
-    all_town +=instance.town + '\n'
-  bot.send_message(message.chat.id,all_town)
+@bot.message_handler(commands=["weather"])
+def butoon_list(message):
+  keyboard = telebot.types.InlineKeyboardMarkup()
+  if DBUser.filter(User.chat_id == message.from_user.id).first() != None:
+    user_towns = DBUser.filter(User.chat_id == message.from_user.id).first().town.split(',')
+    i = 0
+    for town in user_towns:
+      data_name = 'get-town'+str(i)
+      keyboard.add(telebot.types.InlineKeyboardButton(town, callback_data=data_name))
+      i += 1
+    bot.send_message(message.chat.id,'кнопки',reply_markup=keyboard )
+  else:
+    bot.send_message(message.chat.id,'Вы еще не вводили города')
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_inline(call):
+
+  town_name = ''
+  for i in call.message.json['reply_markup']['inline_keyboard']:
+    if call.data == i[0]['callback_data']:
+      town_name = getNameTown(i[0]['text'])
+  weather = DBWeather.filter(Weather.town == town_name).first()
+  weather_message = ''' На данный момент в городе %r:
+  %r
+  %r°C
+  ощущается как %r°C ''' % (weather.town,str(weather.condition),weather.temp,weather.feels_like)
+  bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=weather_message)
 
 @bot.message_handler(content_types=['text'])
 def send_message(message):
-  if message.chat.id not in DBUser:
-    new_user = User(chat_id=int(message.from_user.id))
-    DBSession.add(new_user)
+
+  user = None
+  name_town = getNameTown(message.text)
+  # create or take a user in the database
+  if DBUser.filter(User.chat_id == message.from_user.id).first() == None:
+    user = User(chat_id=int(message.from_user.id))
+    DBSession.add(user)
     DBSession.commit()
-    print(message.from_user.id)
+  else:
+    user = DBUser.filter_by(chat_id=message.from_user.id).first()
+  # create or take a town in the database
+  if DBWeather.filter(Weather.town == name_town).first() == None:
+    try:
+      coordinates = getPosition(name_town)
+      new_town = Weather(town=name_town,lat=coordinates[1],lon=coordinates[0])
+      setWeather(new_town)
+      DBSession.add(new_town)
+      DBSession.commit()
+    except IndexError:
+      bot.send_message(message.chat.id,'Такого города нет')
+  # add a town to the list
+  if user.town == None:
+    user.town = name_town
+  elif user.town != None and len(user.town.split(',')) < 5 and (name_town not in str(user.town.split(','))):
+    user_towns = str(user.town) + ',' + name_town
+    user.town = user_towns
+  elif len(user.town.split(',')) == 5 and (name_town not in str(user.town.split(','))):
+    user_towns = user.town.split(',')
+    user_towns[0] = name_town
+    user.town = ','.join(user_towns)
+
+  DBSession.commit()
+  # send message with information about weather
+  weather = DBWeather.filter(Weather.town == name_town).first()
+  weather_message = ''' На данный момент в городе %r:
+  %r
+  %r°C
+  ощущается как %r°C ''' % (str(name_town),str(weather.condition),weather.temp,weather.feels_like)
+  bot.send_message(message.chat.id,weather_message)
+
 
 
 
