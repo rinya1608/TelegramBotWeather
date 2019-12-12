@@ -5,8 +5,8 @@ import requests
 import json
 DBSession = Session(bind=engine)
 dataBase = DBSession.query(Weather)
-headers = {'X-Yandex-API-Key':yandexKey}
-for instance in dataBase:
+def setWeather(instance):
+    headers = {'X-Yandex-API-Key':yandexKey}
     params = {'lat':instance.lat,'lon':instance.lon}
     response = requests.get(urlWeatherAPI,params = params ,headers = headers)
     data = json.loads(response.text)
