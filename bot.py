@@ -43,27 +43,30 @@ def callback_inline(call):
   for i in call.message.json['reply_markup']['inline_keyboard']:
     if call.data == i[0]['callback_data']:
       town_name = getNameTown(i[0]['text'])
-  weather = DBWeather.filter(Weather.town == town_name).first()
+  weather_button = DBWeather.filter_by(town=town_name).first()
   weather_message = ''' На данный момент в городе %r:
   %r
   %r°C
-  ощущается как %r°C ''' % (weather.town,str(weather.condition),weather.temp,weather.feels_like)
+  ощущается как %r°C ''' % (weather_button.town,str(weather_button.condition),weather_button.temp,weather_button.feels_like)
   bot.edit_message_text(chat_id=call.message.chat.id, message_id=call.message.message_id, text=weather_message)
 
 @bot.message_handler(content_types=['text'])
 def send_message(message):
 
   user = None
-  name_town = getNameTown(message.text)
+  try:
+    name_town = getNameTown(message.text)
+  except IndexError:
+    bot.send_message(message.chat.id,'Такого города нет')
   # create or take a user in the database
-  if DBUser.filter(User.chat_id == message.from_user.id).first() == None:
+  if DBUser.filter_by(chat_id = message.from_user.id).first() == None:
     user = User(chat_id=int(message.from_user.id))
     DBSession.add(user)
     DBSession.commit()
   else:
     user = DBUser.filter_by(chat_id=message.from_user.id).first()
   # create or take a town in the database
-  if DBWeather.filter(Weather.town == name_town).first() == None:
+  if DBWeather.filter_by(town = name_town).first() == None:
     try:
       coordinates = getPosition(name_town)
       new_town = Weather(town=name_town,lat=coordinates[1],lon=coordinates[0])
@@ -82,15 +85,14 @@ def send_message(message):
     user_towns = user.town.split(',')
     user_towns[0] = name_town
     user.town = ','.join(user_towns)
-
-  DBSession.commit()
   # send message with information about weather
-  weather = DBWeather.filter(Weather.town == name_town).first()
+  weather = DBWeather.filter_by(town = name_town).first()
   weather_message = ''' На данный момент в городе %r:
   %r
   %r°C
   ощущается как %r°C ''' % (str(name_town),str(weather.condition),weather.temp,weather.feels_like)
   bot.send_message(message.chat.id,weather_message)
+  DBSession.commit()
 
 
 
