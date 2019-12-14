@@ -20,3 +20,5 @@ def getNameTown(town):
     data = json.loads(response.text)
     names = data['response']['GeoObjectCollection']['featureMember'][0]['GeoObject']['metaDataProperty']['GeocoderMetaData']['Address']['formatted'].split(', ')
     return names[len(names)-1]
+
+print(getNameTown('ревда'))
